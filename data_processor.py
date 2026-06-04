@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 from typing import BinaryIO
 
 import pandas as pd
@@ -19,10 +20,38 @@ class QualityReport:
     outlier_masks: dict[str, pd.Series]
 
 
+def read_data_file(file: str | BinaryIO) -> pd.DataFrame:
+    file_name = str(getattr(file, "name", file)).lower()
+    suffix = Path(file_name).suffix
+
+    if suffix == ".csv":
+        return read_csv_file(file)
+    if suffix in {".xlsx", ".xls"}:
+        return read_excel_file(file)
+
+    raise ValueError("仅支持 .xlsx、.xls 或 .csv 文件。")
+
+
 def read_excel_file(file: str | BinaryIO) -> pd.DataFrame:
+    if hasattr(file, "seek"):
+        file.seek(0)
     df = pd.read_excel(file, sheet_name=0)
     df = _deduplicate_column_names(df)
     return df
+
+
+def read_csv_file(file: str | BinaryIO) -> pd.DataFrame:
+    last_error: Exception | None = None
+    for encoding in ["utf-8-sig", "utf-8", "gbk", "gb18030"]:
+        try:
+            if hasattr(file, "seek"):
+                file.seek(0)
+            df = pd.read_csv(file, encoding=encoding, sep=None, engine="python")
+            return _deduplicate_column_names(df)
+        except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+            last_error = exc
+
+    raise ValueError(f"CSV 文件读取失败，请确认文件编码或分隔符是否正确：{last_error}")
 
 
 def detect_column_types(df: pd.DataFrame) -> ColumnTypes:

@@ -3,7 +3,7 @@ from io import BytesIO
 import pandas as pd
 
 from analyzer import build_analysis_summary
-from data_processor import clean_data, detect_column_types, read_excel_file
+from data_processor import clean_data, detect_column_types, read_csv_file, read_data_file, read_excel_file
 from qa_engine import RuleBasedQAEngine
 from report_generator import generate_excel_report
 
@@ -58,3 +58,22 @@ def test_read_excel_file_deduplicates_column_names() -> None:
     result = read_excel_file(buffer)
 
     assert result.columns.tolist() == ["字段", "字段.1"]
+
+
+def test_read_data_file_supports_csv(tmp_path) -> None:
+    csv_path = tmp_path / "sample.csv"
+    csv_path.write_text("地区,销售额\n华东,100\n华南,120\n", encoding="utf-8-sig")
+
+    result = read_data_file(str(csv_path))
+
+    assert result.shape == (2, 2)
+    assert result["销售额"].tolist() == [100, 120]
+
+
+def test_read_csv_file_supports_gbk(tmp_path) -> None:
+    csv_path = tmp_path / "sample_gbk.csv"
+    csv_path.write_bytes("地区,销售额\n华东,100\n".encode("gbk"))
+
+    result = read_csv_file(str(csv_path))
+
+    assert result.iloc[0]["地区"] == "华东"

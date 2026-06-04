@@ -17,7 +17,10 @@ def create_sample_data() -> None:
     data = pd.concat([data, data.iloc[[15]]], ignore_index=True)
     output_path = Path("sample_sales_data.xlsx")
     data.to_excel(output_path, index=False)
+    csv_output_path = Path("sample_sales_data.csv")
+    data.to_csv(csv_output_path, index=False, encoding="utf-8-sig")
     print(f"已生成示例数据：{output_path.resolve()}")
+    print(f"已生成 CSV 示例数据：{csv_output_path.resolve()}")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 import streamlit as st
 
 from analyzer import build_analysis_summary, create_plotly_charts
-from data_processor import clean_data, detect_column_types, read_excel_file
+from data_processor import clean_data, detect_column_types, read_data_file
 from qa_engine import RuleBasedQAEngine
 from report_generator import generate_excel_report
 
@@ -15,18 +15,18 @@ st.set_page_config(
 
 def render_empty_state() -> None:
     st.title("智能数据分析助手")
-    st.caption("上传 Excel 文件后，自动完成数据清洗、统计分析、图表生成与问答。")
-    st.info("请选择一个 .xlsx 或 .xls 文件开始分析。")
+    st.caption("上传 Excel / CSV 文件后，自动完成数据清洗、统计分析、图表生成与问答。")
+    st.info("请选择一个 .xlsx、.xls 或 .csv 文件开始分析。")
 
 
 def main() -> None:
     st.title("智能数据分析助手")
-    st.caption("Excel 自动清洗 · 统计分析 · 可视化报告 · 自然语言问答")
+    st.caption("Excel / CSV 自动清洗 · 统计分析 · 可视化报告 · 自然语言问答")
 
     uploaded_file = st.sidebar.file_uploader(
-        "上传 Excel 文件",
-        type=["xlsx", "xls"],
-        help="默认读取第一个工作表，并使用首行作为字段名。",
+        "上传 Excel / CSV 文件",
+        type=["xlsx", "xls", "csv"],
+        help="Excel 默认读取第一个工作表；CSV 支持常见 UTF-8 / GBK 中文编码。",
     )
 
     if uploaded_file is None:
@@ -34,7 +34,7 @@ def main() -> None:
         return
 
     try:
-        raw_df = read_excel_file(uploaded_file)
+        raw_df = read_data_file(uploaded_file)
     except Exception as exc:
         st.error(f"文件读取失败：{exc}")
         return
