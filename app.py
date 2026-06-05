@@ -2,6 +2,7 @@ import streamlit as st
 
 from analyzer import build_analysis_summary, create_plotly_charts
 from data_processor import clean_data, detect_column_types, read_data_file
+from llm_client import LLMConfig, OpenAICompatibleLLMClient
 from qa_engine import RuleBasedQAEngine
 from report_generator import generate_excel_report
 
@@ -15,8 +16,87 @@ st.set_page_config(
 
 def render_empty_state() -> None:
     st.title("智能数据分析助手")
-    st.caption("上传 Excel / CSV 文件后，自动完成数据清洗、统计分析、图表生成与问答。")
+    st.caption("可以先在左侧接入 API 大模型，测试成功后再上传 Excel / CSV 文件开始分析。")
     st.info("请选择一个 .xlsx、.xls 或 .csv 文件开始分析。")
+
+
+def render_llm_setup() -> LLMConfig | None:
+    with st.sidebar.expander("API 大模型接入", expanded=True):
+        st.caption("可先测试 AI 模型连接，再上传数据文件。API Key 只在当前页面会话中使用。")
+        api_key = st.text_input("API Key", type="password", placeholder="粘贴你的 API Key")
+        base_url = st.text_input(
+            "接口地址 Base URL",
+            value="https://api.openai.com/v1",
+            help="OpenAI 官方接口保持默认；其他兼容服务请填写服务商提供的 Base URL。",
+        )
+        model = st.text_input(
+            "模型名称",
+            value="gpt-4o-mini",
+            help="填写服务商支持的模型名。",
+        )
+        max_sample_rows = st.slider("发送给模型的样例数据行数", 3, 20, 5)
+
+        config_ready = bool(api_key.strip() and base_url.strip() and model.strip())
+        if st.button("测试 API 连接", disabled=not config_ready):
+            try:
+                client = OpenAICompatibleLLMClient(
+                    LLMConfig(
+                        api_key=api_key,
+                        base_url=base_url,
+                        model=model,
+                        max_sample_rows=max_sample_rows,
+                    )
+                )
+                with st.spinner("正在测试 API 连接..."):
+                    answer = client.test_connection()
+                st.success(answer)
+                st.session_state["llm_connected"] = True
+            except Exception as exc:
+                st.session_state["llm_connected"] = False
+                st.error(str(exc))
+
+        if not config_ready:
+            st.caption("填写 API Key、Base URL 和模型名称后即可测试连接。")
+            return None
+
+        return LLMConfig(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            max_sample_rows=max_sample_rows,
+        )
+
+
+def render_api_tutorial() -> None:
+    with st.sidebar.expander("API 大模型接入教程", expanded=False):
+        st.markdown(
+            """
+            **1. 准备 API Key**
+
+            - OpenAI 官方接口：进入 OpenAI 平台创建 API Key。
+            - 其他大模型服务：找到服务商提供的 API Key、Base URL 和模型名称。
+            - 不要把 API Key 写进代码、README 或上传到 GitHub。
+
+            **2. 先在左侧填写并测试**
+
+            - 在左侧 `API 大模型接入` 中填写 API Key、Base URL 和模型名称。
+            - 点击 `测试 API 连接`。
+            - 测试成功后，再上传 Excel / CSV 文件进行数据问答。
+
+            **3. 常见示例**
+
+            - OpenAI Base URL：`https://api.openai.com/v1`
+            - 第三方兼容接口：通常类似 `https://xxx.com/v1`
+            - 模型名称必须和服务商文档一致。
+
+            **4. 测试问题**
+
+            - `这份数据主要有什么问题？`
+            - `缺失值最多的字段是什么？`
+            - `异常值最多的字段是什么？`
+            - `请用三句话总结这份数据。`
+            """
+        )
 
 
 def main() -> None:
@@ -28,6 +108,8 @@ def main() -> None:
         type=["xlsx", "xls", "csv"],
         help="Excel 默认读取第一个工作表；CSV 支持常见 UTF-8 / GBK 中文编码。",
     )
+    llm_config = render_llm_setup()
+    render_api_tutorial()
 
     if uploaded_file is None:
         render_empty_state()
@@ -99,14 +181,44 @@ def main() -> None:
 
     with tab_qa:
         st.subheader("自然语言数据问答")
+        qa_mode = st.radio(
+            "选择问答模式",
+            ["规则模式（无需 API）", "API 大模型模式（测试）"],
+            horizontal=True,
+        )
         question = st.text_input(
             "输入你的问题",
             placeholder="例如：缺失值最多的列是什么？销售额平均值是多少？生成数据总结",
         )
-        if question:
-            st.write(qa_engine.answer(question))
 
-        st.caption("当前版本使用规则式 Mock 问答，后续可替换为真实 LLM API。")
+        if qa_mode == "规则模式（无需 API）":
+            if question:
+                st.write(qa_engine.answer(question))
+            st.caption("当前为规则式 Mock 问答，不需要 API Key，适合本地演示和基础测试。")
+        else:
+            if llm_config is None:
+                st.warning("请先在左侧「API 大模型接入」中填写配置并测试连接。")
+            elif st.session_state.get("llm_connected"):
+                st.success("已检测到 API 连接测试成功，可开始数据问答。")
+            else:
+                st.info("你已经填写了 API 配置，建议先点击左侧「测试 API 连接」。")
+
+            if question:
+                if llm_config is not None:
+                    with st.spinner("正在调用 API 大模型分析数据..."):
+                        try:
+                            llm_client = OpenAICompatibleLLMClient(llm_config)
+                            st.write(
+                                llm_client.answer_question(
+                                    question,
+                                    cleaned_df,
+                                    quality_report,
+                                    column_types,
+                                    analysis,
+                                )
+                            )
+                        except Exception as exc:
+                            st.error(str(exc))
 
     with tab_report:
         st.subheader("下载 Excel 分析包")

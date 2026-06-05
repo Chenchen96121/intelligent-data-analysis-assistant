@@ -4,6 +4,7 @@ import pandas as pd
 
 from analyzer import build_analysis_summary
 from data_processor import clean_data, detect_column_types, read_csv_file, read_data_file, read_excel_file
+from llm_client import LLMConfig, OpenAICompatibleLLMClient
 from qa_engine import RuleBasedQAEngine
 from report_generator import generate_excel_report
 
@@ -77,3 +78,70 @@ def test_read_csv_file_supports_gbk(tmp_path) -> None:
     result = read_csv_file(str(csv_path))
 
     assert result.iloc[0]["地区"] == "华东"
+
+
+def test_openai_compatible_llm_client_builds_chat_request(monkeypatch) -> None:
+    cleaned, quality = clean_data(make_sample_df())
+    column_types = detect_column_types(cleaned)
+    analysis = build_analysis_summary(cleaned, quality, column_types)
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": "这是一段 API 大模型回答。"}}]}
+
+    def fake_post(url, headers, json, timeout):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("llm_client.requests.post", fake_post)
+    client = OpenAICompatibleLLMClient(
+        LLMConfig(
+            api_key="test-key",
+            base_url="https://example.com/v1",
+            model="test-model",
+            timeout=10,
+        )
+    )
+
+    answer = client.answer_question("请总结数据", cleaned, quality, column_types, analysis)
+
+    assert answer == "这是一段 API 大模型回答。"
+    assert captured["url"] == "https://example.com/v1/chat/completions"
+    assert captured["headers"]["Authorization"] == "Bearer test-key"
+    assert captured["json"]["model"] == "test-model"
+
+
+def test_openai_compatible_llm_client_tests_connection(monkeypatch) -> None:
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": "API 大模型连接成功。"}}]}
+
+    def fake_post(url, headers, json, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        return FakeResponse()
+
+    monkeypatch.setattr("llm_client.requests.post", fake_post)
+    client = OpenAICompatibleLLMClient(
+        LLMConfig(api_key="test-key", base_url="https://example.com/v1", model="test-model")
+    )
+
+    assert client.test_connection() == "API 大模型连接成功。"
+    assert captured["url"] == "https://example.com/v1/chat/completions"
+    assert captured["json"]["messages"][1]["content"] == "请回复：API 大模型连接成功。"
