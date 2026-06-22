@@ -345,7 +345,6 @@ def render_workflow_steps() -> None:
 def render_llm_setup() -> LLMConfig | None:
     with st.sidebar.expander("API 大模型接入", expanded=True):
         st.caption("可先测试 AI 模型连接，再上传数据文件。API Key 只在当前页面会话中使用。")
-        st.caption("API 问答使用精简 Prompt：先提取结构化查询意图，再发送压缩数据摘要，以降低调用成本。")
         api_key = st.text_input("API Key", type="password", placeholder="粘贴你的 API Key")
         base_url = st.text_input(
             "接口地址 Base URL",
