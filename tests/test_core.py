@@ -4,7 +4,7 @@ import pandas as pd
 
 from analyzer import build_analysis_summary
 from data_processor import clean_data, detect_column_types, read_csv_file, read_data_file, read_excel_file
-from llm_client import LLMConfig, OpenAICompatibleLLMClient
+from llm_client import LLMConfig, OpenAICompatibleLLMClient, build_structured_query_intent
 from qa_engine import RuleBasedQAEngine
 from report_generator import generate_excel_report
 
@@ -118,6 +118,10 @@ def test_openai_compatible_llm_client_builds_chat_request(monkeypatch) -> None:
     assert captured["url"] == "https://example.com/v1/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer test-key"
     assert captured["json"]["model"] == "test-model"
+    user_prompt = captured["json"]["messages"][1]["content"]
+    assert "LOCAL_INTENT" in user_prompt
+    assert "DATA_CONTEXT" in user_prompt
+    assert "dataset_summary" in user_prompt
 
 
 def test_openai_compatible_llm_client_tests_connection(monkeypatch) -> None:
@@ -145,3 +149,20 @@ def test_openai_compatible_llm_client_tests_connection(monkeypatch) -> None:
     assert client.test_connection() == "API 大模型连接成功。"
     assert captured["url"] == "https://example.com/v1/chat/completions"
     assert captured["json"]["messages"][1]["content"] == "请回复：API 大模型连接成功。"
+
+
+def test_structured_query_intent_for_data_analysis_questions() -> None:
+    cleaned, quality = clean_data(make_sample_df())
+    column_types = detect_column_types(cleaned)
+
+    mean_intent = build_structured_query_intent("销售额平均值是多少？", cleaned, quality, column_types)
+    missing_intent = build_structured_query_intent("缺失值最多的字段是什么？", cleaned, quality, column_types)
+    outlier_intent = build_structured_query_intent("哪个字段异常值最多？", cleaned, quality, column_types)
+
+    assert mean_intent.intent_type == "descriptive_metric"
+    assert mean_intent.target_columns == ["销售额"]
+    assert "mean" in mean_intent.metrics
+    assert missing_intent.intent_type == "missing_value_check"
+    assert "missing_count" in missing_intent.metrics
+    assert outlier_intent.intent_type == "outlier_check"
+    assert "outlier_count" in outlier_intent.metrics
